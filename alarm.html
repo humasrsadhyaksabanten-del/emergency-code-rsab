@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ALARM</title>
+  <link rel="icon" type="image/png" sizes="64x64" href="favicon-64.png">
+  <link rel="stylesheet" href="css/peta.css?v=202609180824">
+  <script src="js/peerjs.min.js?v=202609180824"></script>
+  <script>
+    if (typeof Peer !== 'function') document.write('<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"><\/script>');
+  </script>
+  <script>
+    if (typeof Peer !== 'function') document.write('<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"><\/script>');
+  </script>
+  <style>* { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; font-family: "Segoe UI", Roboto, Arial, sans-serif; }
+    body { background: #0b0f13; color: #fff; overflow: hidden; }
+
+    .layout { position: relative; min-height: 100vh; display: flex; flex-direction: row; }
+
+    .panel-text {
+      flex: 0 0 38%;
+      max-width: 460px;
+      min-width: 300px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 32px 26px;
+      background: #616161;
+      position: relative;
+      z-index: 2;
+      box-shadow: 6px 0 26px rgba(0,0,0,.4);
+      animation: flash 1s steps(2) infinite;
+    }
+
+       /* Kontras otomatis untuk warna code yang terang (mis. Code White) */
+    .panel-text.light-bg .code,
+    .panel-text.light-bg .inst,
+    .panel-text.light-bg .ged,
+    .panel-text.light-bg .since {
+      color: #1a1a1a;
+      text-shadow: none;
+    }
+    .panel-text.light-bg .note {
+      background: rgba(0,0,0,.14);
+      color: #1a1a1a;
+    }
+    @keyframes flash { 0% { filter: brightness(1); } 50% { filter: brightness(.72); } }
+
+    .panel-map { flex: 1; position: relative; background: #10151a; overflow: hidden; min-height: 260px; }
+
+    @media (max-width: 860px) {
+      .layout { flex-direction: column; }
+      .panel-text { flex: 0 0 auto; width: 100%; max-width: none; min-width: 0; box-shadow: 0 6px 26px rgba(0,0,0,.4); padding: 26px 20px; }
+      .panel-map { flex: 1 1 auto; min-height: 42vh; }
+    }
+
+    @media (max-width: 480px) {
+      .panel-text { padding: 20px 16px; }
+      .btn-stop { width: 100%; }
+    }
+
+    .code { font-size: clamp(28px, 8vw, 68px); font-weight: 900; letter-spacing: 3px; line-height: 1.05; text-shadow: 0 6px 20px rgba(0,0,0,.45); word-break: break-word; }
+    .inst { font-size: clamp(18px, 4.4vw, 34px); font-weight: 800; margin-top: 14px; }
+    .ged  { font-size: clamp(14px, 3.2vw, 24px); font-weight: 600; opacity: .95; margin-top: 6px; }
+    .since { margin-top: 22px; font-size: clamp(13px, 2vw, 17px); opacity: .9; font-variant-numeric: tabular-nums; }
+    .note { margin-top: 22px; font-size: clamp(12px, 2vw, 14px); background: rgba(0,0,0,.35); padding: 10px 16px; border-radius: 10px; }
+    .btn-stop {
+      margin-top: 24px; background: #fff; color: #111; border: 0; border-radius: 14px; padding: 18px 34px;
+      font-size: 20px; font-weight: 900; cursor: pointer; box-shadow: 0 8px 24px rgba(0,0,0,.4);
+      min-height: 56px; -webkit-tap-highlight-color: transparent;
+    }
+    .btn-stop:disabled { opacity: .6; cursor: not-allowed; }
+    .hidden { display: none !important; }
+    .overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,.85); display: flex; flex-direction: column;
+      align-items: center; justify-content: center; text-align: center; padding: 24px; cursor: pointer; z-index: 10;
+    }
+    .overlay h2 { font-size: clamp(22px, 5vw, 34px); margin: 0 0 8px; }
+    .overlay p { color: #cfd8dc; font-size: clamp(14px, 3vw, 16px); margin: 0; }
+    .conn { position: fixed; top: 10px; right: 14px; font-size: 12px; opacity: .8; z-index: 20; }
+    /* BARU (Voice Announce) */
+    .voice-row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; align-items: center; margin-top: 14px; }
+    .btn-talk { margin-top: 0; font-size: 15px; padding: 12px 20px; min-height: 48px; display: inline-flex; align-items: center; justify-content: center; gap: 10px; }
+    .btn-talk-icon { width: 28px; height: 28px; object-fit: contain; flex-shrink: 0; }
+    img.btn-talk-icon { filter: brightness(0); }
+    .btn-talk.talking img.btn-talk-icon { filter: brightness(0) invert(1); }
+    .btn-talk:disabled .btn-talk-icon { opacity: .6; }
+    .btn-talk-label { font-weight: 900; }
+    @media (max-width: 480px) { .btn-talk-icon { width: 24px; height: 24px; } }
+    .btn-talk.talking { background: #e53935; color: #fff; animation: pulse 1s ease-in-out infinite; }
+    .voice-ind { background: #0d2a3a; color: #d6f0ff; border-radius: 8px; padding: 8px 14px; font-weight: 800; font-size: 13px; }
+    .voice-ind.live { background: #fff; color: #111; font-size: 15px; animation: pulse 1s ease-in-out infinite; }
+    @keyframes pulse { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.18); } }
+    /* BARU (Pengumuman teks) */
+    .note.announce-text { background: #0d2a3a; color: #d6f0ff; font-weight: 800; font-size: clamp(14px, 3vw, 18px); border: 1px solid #29b6f6; text-align: left; margin-top: 12px; }
+    .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.7); display: flex; align-items: center; justify-content: center; z-index: 30; padding: 20px; }
+    .modal { background: #1a222c; border-radius: 16px; padding: 24px; max-width: 460px; width: 100%; border: 1px solid #2c3946; text-align: left; animation: none; }
+    .modal h3 { margin: 0 0 8px; font-size: 20px; }
+    .modal p { margin: 0 0 14px; color: #9aa8b5; font-size: 14px; line-height: 1.5; }
+    .ann-text { width: 100%; padding: 12px 14px; font-size: 16px; border-radius: 10px; resize: vertical; font-family: inherit; border: 1px solid #2c3946; background: #222c38; color: #f2f5f7; line-height: 1.4; }
+    .ann-count { text-align: right; color: #9aa8b5; font-size: 12px; margin: 6px 0 16px; }
+    .modal .row { display: flex; gap: 12px; }
+    .modal .row button { flex: 1; padding: 14px; font-size: 16px; font-weight: 800; border-radius: 10px; border: 0; cursor: pointer; min-height: 48px; }
+    .modal .row .cancel { background: #222c38; color: #f2f5f7; }
+    .modal .row .send { background: #1e88e5; color: #fff; }
+  </style>
+</head>
+<body><div class="layout" id="layout">
+    <div class="panel-text" id="panelText">
+      <div>
+        <div class="code" id="elCode">ALARM</div>
+        <div class="inst" id="elInst">-</div>
+        <div class="ged" id="elGed">-</div>
+        <div class="since" id="elSince"></div>
+        <div class="note" id="elNote">Alarm hanya dapat dihentikan dari PC pengirim.</div>
+        <!-- BARU (Voice Announce): pengirim -> tombol BICARA MANUAL; penerima -> indikator mendengarkan +
+             tombol AKTIFKAN SUARA PENGIRIM bila autoplay diblokir. Logika di bawah (setupVoice) + modul Voice.html. -->
+        <div class="voice-row hidden" id="voiceRow">
+          <button type="button" class="btn-stop btn-talk hidden" id="btnAnnounce">&#128226; KIRIM PENGUMUMAN</button>
+          <!-- BARU: pengumuman diulang tiap 25 detik di semua PC/HP sampai pengirim menekan ini -->
+          <button type="button" class="btn-stop btn-talk hidden" id="fbStopAnnounce">&#128683; HENTIKAN PENGUMUMAN</button>
+          <button type="button" class="btn-stop btn-talk hidden" id="btnTalk">
+            <img src="icon-mic.png" alt="" class="btn-talk-icon" onerror="this.style.display='none';if(this.nextElementSibling)this.nextElementSibling.style.display='';">
+            <svg class="btn-talk-icon btn-talk-svg" viewBox="0 0 24 24" aria-hidden="true" style="display:none" fill="currentColor"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M19 10a1 1 0 1 0-2 0 5 5 0 0 1-10 0 1 1 0 1 0-2 0 7 7 0 0 0 6 6.92V20H8a1 1 0 1 0 0 2h8a1 1 0 1 0 0-2h-3v-3.08A7 7 0 0 0 19 10z"/></svg>
+            <span class="btn-talk-label">BICARA MANUAL</span>
+          </button>
+          <span class="voice-ind hidden" id="elListening">&#127911; Mendengarkan pengirim...</span>
+          <button type="button" class="btn-stop btn-talk hidden" id="btnUnlockVoice">&#128266; AKTIFKAN SUARA PENGIRIM</button>
+        </div>
+        <div class="note announce-text hidden" id="elAnnounce"></div>
+        <!-- PERBAIKAN: fallback kecil, TIDAK menutupi alarm (bukan overlay besar). Muncul hanya bila
+             audio belum jalan 3 detik setelah alarm tampil, sebagai jalan pintas manual terakhir. -->
+        <button id="btnEnableAudio" class="btn-stop hidden" type="button" style="margin-top:12px;font-size:14px;padding:10px 18px">
+          &#128266; AKTIFKAN SUARA
+        </button>
+        <button class="btn-stop hidden" id="btnStop" type="button">HENTIKAN ALARM</button>
+        <!-- BARU: setelah alarm SELESAI tab TIDAK ditutup otomatis; perawat memilih sendiri. -->
+        <div class="hidden" id="finishActions" style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-top:16px">
+          <button class="btn-stop" id="btnFinishDashboard" type="button">BUKA DASHBOARD</button>
+          <button class="btn-stop" id="btnFinishClose" type="button" style="background:rgba(255,255,255,.14);color:#fff;border:1px solid rgba(255,255,255,.45)">TUTUP TAB INI</button>
+        </div>
+      </div>
+    </div>
+    <div class="panel-map" id="panelMap">
+      <div class="peta-container" id="petaContainer">
+  <div class="peta-label-badge" id="petaLabelBadge">
+    <div class="pl-code" id="plCode"></div>
+    <div class="pl-gedung" id="plGedung"></div>
+    <div class="pl-inst" id="plInst"></div>
+  </div>
+  <div class="peta-img-wrap">
+    <!-- GAMBAR DENAH: ganti src dengan URL gambar (Drive "get direct link", hosting, atau base64) -->
+    <!-- BARU: src diisi lewat JS dengan parameter cache busting (PETA_IMG_VERSION) supaya denah yang diperbarui langsung tampil -->
+    <img class="peta-img" id="petaImg" src="" alt="Denah Rumah Sakit">
+
+    <svg class="peta-svg" id="petaSvg" viewBox="0 0 1024 685" preserveAspectRatio="xMidYMid meet">
+      <defs>
+        <mask id="petaSpotlight">
+          <rect x="0" y="0" width="1024" height="685" fill="#fff"></rect>
+          <circle id="petaSpotHole" cx="0" cy="0" r="95" fill="#000"></circle>
+        </mask>
+      </defs>
+
+      <!-- lapisan gelap dengan lubang spotlight di gedung tujuan -->
+      <rect id="petaDim" x="0" y="0" width="1024" height="685" mask="url(#petaSpotlight)"></rect>
+
+      <line id="petaLine" x1="512" y1="342" x2="512" y2="342" stroke-dasharray="600"></line>
+      <circle id="petaHighlight" cx="0" cy="0" r="60"></circle>
+
+      <g id="petaMarker">
+        <circle class="marker-pulse" cx="0" cy="0" r="14"></circle>
+        <circle class="marker-dot" cx="0" cy="0" r="14" stroke="#fff" stroke-width="3"></circle>
+      </g>
+    </svg>
+  </div>
+</div>
+    </div>
+  </div>
+  <div class="conn" id="elConn"></div>
+
+  <!-- BARU: modal pengumuman teks (hanya tab pengirim, butuh token) -->
+  <div id="modalAnnounce" class="modal-bg hidden">
+    <div class="modal">
+      <h3>&#128226; Kirim Pengumuman</h3>
+      <p>Teks ini akan ditampilkan dan diucapkan otomatis (TTS) di SEMUA PC/HP yang menampilkan alarm ini.</p>
+      <textarea id="annText" class="ann-text" maxlength="200" rows="3" placeholder="Contoh: Tim Code Blue harap segera ke IGD lantai 2"></textarea>
+      <div class="ann-count"><span id="annCount">0</span>/<span id="annMax">200</span> karakter</div>
+      <div class="row">
+        <button class="cancel" id="annCancel" type="button">Batal</button>
+        <button class="send" id="annSend" type="button">KIRIM &amp; UCAPKAN</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="overlayUnlock" class="overlay hidden">
+    <h2>KLIK DI MANA SAJA UNTUK MENGAKTIFKAN SUARA</h2>
+    <p>Browser memblokir pemutaran audio otomatis di tab ini. Hubungi IT untuk mengaktifkan flag autoplay pada PC ini.</p>
+    <!-- Muncul hanya setelah klik pertama gagal membuka audio (mis. browser tidak mendukung), supaya user tidak terjebak. -->
+    <button type="button" id="btnUnlockClose" class="btn-stop hidden" style="margin-top:22px;font-size:15px;padding:12px 20px">TUTUP PESAN INI (tanpa suara)</button>
+  </div>
+  <script src="js/config.js?v=202609180824"></script>
+  <script src="js/api.js?v=202609180824"></script>
+  <script src="js/audio.js?v=202609180824"></script>
+  <script src="js/voice.js?v=202609180824"></script>
+  <script src="js/peta.js?v=202609180824"></script>
+  <script src="js/alarm.js?v=202609180824"></script>
+</body>
+</html>

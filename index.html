@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Emergency Code RSAB - Nurse Station</title>
+  <meta name="theme-color" content="#111827">
+  <link rel="manifest" href="manifest.json">
+  <!-- Font Inter (opsional; fallback otomatis ke Segoe UI/Roboto bila Google Fonts diblokir) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+  <!-- F1: favicon tab browser = logo RS (favicon-64.png); ikon PWA/home screen = ikon mic (icon-192/512.png) -->
+  <link rel="icon" type="image/png" sizes="64x64" href="favicon-64.png">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="stylesheet" href="css/styles.css?v=202609180824">
+  <link rel="stylesheet" href="css/peta.css?v=202609180824">
+  <!-- PeerJS (WebRTC) untuk BICARA MANUAL. M19: salinan LOKAL dimuat lebih dulu (js/peerjs.min.js, tidak bergantung CDN
+       & tidak bisa diganti pihak ketiga); bila gagal -> unpkg -> jsdelivr. Di GitHub Pages halaman ini dokumen top-level,
+       jadi getUserMedia() / mikrofon BERFUNGSI. -->
+  <script src="js/peerjs.min.js?v=202609180824"></script>
+  <script>
+    if (typeof Peer !== 'function') document.write('<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"><\/script>');
+  </script>
+  <script>
+    if (typeof Peer !== 'function') document.write('<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"><\/script>');
+  </script>
+</head>
+<body><noscript>
+    <div style="padding:24px;font-family:sans-serif;background:#4a2a00;color:#ffe0b2;text-align:center">
+      <b>JavaScript dinonaktifkan.</b> Sistem Emergency RSAB membutuhkan JavaScript untuk login, polling, dan suara alarm.
+      Aktifkan JavaScript di browser lalu muat ulang halaman ini.
+    </div>
+  </noscript>
+
+  <!-- BARU (M8/M9): banner merah "koneksi terputus" — di atas login maupun dashboard. Logika: Script.html showConnBanner(). -->
+  <div id="connBanner" class="conn-banner hidden" role="alert" aria-live="assertive">
+    <span class="conn-text" id="connText">&#9888;&#65039; Koneksi ke server terputus.</span>
+    <button type="button" class="btn-small" id="connRetry">&#128260; COBA LAGI</button>
+  </div>
+
+  <!-- ================= LOGIN ================= -->
+  <div id="viewLogin" class="login-wrap">
+    <!-- onsubmit="return false": pengaman agar form TIDAK pernah submit native (halaman putih userCodeAppPanel?)
+         walaupun script dashboard gagal dimuat; login sesungguhnya ditangani di Script.html. -->
+    <form class="login-card" id="formLogin" autocomplete="off" onsubmit="return false;">
+      <!-- BARU (F1): logo RS di kartu login (file logo-rsab.png di root situs GitHub Pages; di Apps Script otomatis disembunyikan). -->
+      <img class="login-logo" src="logo-rsab.svg" alt="RS Adhyaksa Banten" onerror="if(this.src.indexOf('.svg')>-1){this.src='logo-rsab.png';}else{this.style.display='none';}">
+      <h1>Emergency Code RSAB</h1>
+      <p class="sub">Masuk dengan akun instalasi PC nurse station ini.</p>
+      <div class="field">
+        <label for="inUser">Username</label>
+        <input id="inUser" type="text" autocapitalize="off" autocomplete="username" required>
+      </div>
+      <div class="field">
+        <label for="inPass">PIN / Password</label>
+        <input id="inPass" type="password" inputmode="numeric" autocomplete="current-password" required>
+      </div>
+      <!-- BARU: sesi disimpan di localStorage supaya tidak perlu login ulang saat tab ditutup (PC nurse station dedicated) -->
+      <div class="field remember">
+        <label for="inRemember">
+          <input type="checkbox" id="inRemember" checked>
+          <span>Ingat sesi di PC ini (untuk PC nurse station)</span>
+        </label>
+      </div>
+      <button class="btn-primary" id="btnLogin" type="submit">MASUK</button>
+      <div class="error" id="loginError"></div>
+    </form>
+  </div>
+
+  <!-- ================= DASHBOARD ================= -->
+  <div id="viewDash" class="hidden">
+    <div class="topbar">
+      <div class="ident">
+        <!-- BARU (F1): logo RS di kiri nama instalasi -->
+        <img class="header-logo" src="logo-emblem.svg" alt="" onerror="if(this.src.indexOf('.svg')>-1){this.src='logo-emblem.png';}else{this.style.display='none';}">
+        <div class="ident-text">
+          <div class="name" id="identNama">-</div>
+          <div class="gedung" id="identGedung">-</div>
+        </div>
+      </div>
+      <div class="status">
+        <!-- BARU (M15) jam real-time, (M16) jumlah PC online, (M14) refresh manual, (M10/M19) tes/aktifkan suara -->
+        <span class="clock" id="clock">--:--:--</span>
+        <span class="online hidden" id="onlineCount"></span>
+        <span class="dot" id="pollDot"></span>
+        <span id="pollText">Menghubungkan...</span>
+        <button class="btn-ghost audio" id="btnAudio" type="button" title="Tes suara alarm di PC ini">&#128266; TES SUARA</button>
+        <button class="btn-ghost" id="btnRefresh" type="button" title="Muat ulang daftar code, event aktif, dan riwayat">&#128260; REFRESH</button>
+        <button class="btn-ghost" id="btnPaging" type="button" title="Kirim paging ke gedung tertentu">&#128226; SERVER PAGING</button>
+        <button class="btn-ghost" id="btnDiag" type="button" title="Cek koneksi, suara, dan jalur BICARA MANUAL (WebRTC) di PC ini">&#129657; DIAGNOSTIK</button>
+        <button class="btn-ghost" id="btnLogout" type="button">Keluar</button>
+      </div>
+    </div>
+
+    <div class="main">
+      <!-- PERBAIKAN: panel "Pop-up diblokir" dan "Tab alarm cadangan habis" DIHAPUS. Semua perangkat (HP & PC)
+           kini memakai mode inline: alarm tampil sebagai overlay fullscreen di halaman ini (overlayFallback),
+           tidak ada tab/pop-up terpisah, jadi peringatan pop-up & tombol "SIAPKAN TAB ALARM" tidak relevan. -->
+
+      <!-- Bar saat overlay alarm diminimalkan: suara tetap berbunyi, tampilan bisa dibuka lagi. -->
+      <div id="fbMinBar" class="alert-min hidden">
+        <span id="fbMinText">-</span>
+        <div class="alert-actions">
+          <button type="button" class="btn-small" id="fbMinRetry">BUKA TAB ALARM</button>
+          <button type="button" class="btn-small" id="fbMinShow">TAMPILKAN ALARM</button>
+        </div>
+      </div>
+
+      <div id="mineBanners"></div>
+
+      <h2 class="section">Kirim Code Darurat</h2>
+      <div class="code-grid" id="codeGrid"><div class="empty">Memuat daftar code...</div></div>
+
+      <h2 class="section">Sedang Berlangsung di Instalasi Lain</h2>
+      <div class="others-list" id="othersList"><div class="empty">Tidak ada.</div></div>
+
+      <h2 class="section">Riwayat Terakhir</h2>
+      <div style="overflow-x:auto">
+        <table class="log">
+          <thead><tr><th>Mulai</th><th>Code</th><th>Instalasi</th><th>Status</th><th>Selesai</th><th>Dihentikan oleh</th></tr></thead>
+          <tbody id="logBody"><tr><td colspan="6" class="empty">Memuat...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= MODAL KONFIRMASI ================= -->
+  <div id="modalConfirm" class="modal-bg hidden">
+    <div class="modal">
+      <h3 id="mcTitle">Konfirmasi</h3>
+      <p id="mcText"></p>
+      <div class="row">
+        <button class="btn-cancel" id="mcCancel" type="button">Batal</button>
+        <button class="btn-confirm" id="mcOk" type="button">YA, KIRIM</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= MODAL SERVER PAGING (pilih gedung tujuan) ================= -->
+  <div id="modalPaging" class="modal-bg above-alarm hidden" role="dialog" aria-live="polite">
+    <div class="modal wide">
+      <h3>&#128226; Server Paging</h3>
+      <p>Pilih gedung yang akan dibunyikan alarm paging. "Semua Gedung" membunyikan di seluruh PC/HP.</p>
+      <div class="field">
+        <label for="pagingKode">Jenis Paging</label>
+        <select id="pagingKode" class="ann-text" style="padding:10px 12px"></select>
+      </div>
+      <div class="field">
+        <label>Gedung Tujuan</label>
+        <div id="pagingGedungList" class="paging-list"></div>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button class="btn-cancel" id="pagingCancel" type="button">Batal</button>
+        <button class="btn-confirm ann-send" id="pagingSend" type="button">BUNYIKAN ALARM</button>
+      </div>
+      <div style="color:var(--muted);font-size:12px;margin-top:10px" id="pagingHint"></div>
+    </div>
+  </div>
+
+  <!-- ================= MODAL PENGUMUMAN TEKS (hanya pengirim) =================
+       z-index di atas overlay alarm (kelas above-alarm) supaya bisa dipakai saat alarm tampil. -->
+  <div id="modalAnnounce" class="modal-bg above-alarm hidden">
+    <div class="modal">
+      <h3>&#128226; Kirim Pengumuman</h3>
+      <p>Teks ini akan ditampilkan dan diucapkan otomatis (TTS) di SEMUA PC/HP yang menampilkan alarm ini.</p>
+      <textarea id="annText" class="ann-text" maxlength="200" rows="3" placeholder="Contoh: Tim Code Blue harap segera ke IGD lantai 2"></textarea>
+      <div class="ann-count"><span id="annCount">0</span>/<span id="annMax">200</span> karakter</div>
+      <div class="row">
+        <button class="btn-cancel" id="annCancel" type="button">Batal</button>
+        <button class="btn-confirm ann-send" id="annSend" type="button">KIRIM &amp; UCAPKAN</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= MODAL DIAGNOSTIK (M0) =================
+       Snapshot koneksi/audio/WebRTC + SELF TEST + TES TURN + SALIN. Di atas overlay alarm (above-alarm). Logika: Script.html. -->
+  <div id="modalDiag" class="modal-bg above-alarm hidden">
+    <div class="modal wide">
+      <h3>&#129657; Diagnostik PC ini</h3>
+      <p>Untuk IT: jalankan <b>SELF TEST</b> (jalur PeerJS di PC ini) dan <b>TES TURN</b> (apakah firewall RS mengizinkan relay WebRTC),
+        lalu <b>SALIN</b> dan kirim hasilnya. Tidak ada PIN/kredensial yang ikut tersalin.</p>
+      <div class="diag-actions">
+        <button type="button" class="btn-small" id="diagSelfTest">&#9654; SELF TEST</button>
+        <button type="button" class="btn-small" id="diagIce">&#127760; TES TURN / ICE</button>
+        <button type="button" class="btn-small ghost" id="diagRefresh">&#128260; SEGARKAN</button>
+        <button type="button" class="btn-small" id="diagCopy">&#128203; SALIN</button>
+      </div>
+      <div class="diag-hint hidden" id="diagHint"></div>
+      <pre class="diag-out" id="diagOut">-</pre>
+      <div class="row"><button class="btn-cancel" id="diagClose" type="button">Tutup</button></div>
+    </div>
+  </div>
+
+  <!-- ================= MODAL ALARM SELESAI (konfirmasi setelah HENTIKAN ALARM; tidak menutup apa pun otomatis) ================= -->
+  <div id="modalAlarmStopped" class="modal-bg above-alarm hidden" role="dialog" aria-live="polite">
+    <div class="modal">
+      <h3 id="masTitle">ALARM SELESAI</h3>
+      <p id="masSubtitle" style="margin:0 0 16px;color:var(--muted);font-size:14px"></p>
+      <div id="masInfo" class="mas-info"></div>
+      <div class="row">
+        <button class="btn-cancel" id="btnAlarmStoppedLog" type="button">LIHAT RIWAYAT</button>
+        <button class="btn-confirm" id="btnAlarmStoppedClose" type="button">TUTUP SEKARANG</button>
+      </div>
+      <div class="row hidden" id="masRetryRow" style="margin-top:10px">
+        <button class="btn-cancel" id="btnAlarmStoppedRetry" type="button">BUKA TAB ALARM</button>
+      </div>
+      <div style="text-align:center;color:var(--muted);font-size:12px;margin-top:12px" id="masCountdown">Menutup otomatis dalam 10 detik...</div>
+    </div>
+  </div>
+
+  <!-- ================= OVERLAY UNLOCK AUDIO (saat sesi dipulihkan) ================= -->
+  <div id="overlayUnlock" class="overlay unlock hidden">
+    <h2>Klik di mana saja untuk melanjutkan</h2>
+    <p>Sesi login dipulihkan. Satu klik diperlukan agar browser mengizinkan suara alarm.</p>
+    <!-- BARU: jalan keluar bila audio tidak bisa/tidak perlu diaktifkan di PC ini -->
+    <button type="button" class="btn-small ghost" id="unlockClose" style="margin-top:22px">LANJUTKAN TANPA SUARA</button>
+  </div>
+
+  <!-- ================= OVERLAY ALARM CADANGAN (jika pop-up diblokir) ================= -->
+  <div id="overlayFallback" class="overlay fallback hidden">
+    <div class="fb-layout" id="fbLayout">
+      <div class="fb-panel-text" id="fbPanelText">
+        <div class="big" id="fbCode">CODE</div>
+        <div class="loc" id="fbLoc">-</div>
+        <div class="note" id="fbNote">Alarm ditampilkan langsung di halaman ini. Jangan tutup halaman sampai alarm dihentikan oleh pengirim.</div>
+        <!-- BARU (HP): ajakan mengetuk layar bila suara belum bisa diputar (browser butuh 1 sentuhan) -->
+        <div class="note tap-hint hidden" id="fbTapHint">&#128266; KETUK LAYAR INI UNTUK MENGAKTIFKAN SUARA</div>
+        <!-- BARU (Voice Announce): pengirim -> tombol BICARA MANUAL (mikrofon live ke semua penerima; tidak ada
+             TTS/AI, murni suara pengirim). Penerima -> indikator mendengarkan + tombol AKTIFKAN SUARA PENGIRIM
+             bila browser memblokir autoplay. Seluruh baris disembunyikan bila PeerJS tidak termuat / event lama
+             tanpa roomId. Logika: Script.html (syncVoiceUI) + modul Voice.html. -->
+        <div class="fb-voice-row hidden" id="fbVoiceRow">
+          <!-- BARU: pengumuman TEKS (pengirim mengetik -> ditampilkan + diucapkan TTS di semua penerima).
+               Tidak butuh mikrofon -> selalu bekerja di dalam iframe Apps Script. -->
+          <button type="button" class="btn-small btn-talk hidden" id="fbAnnounce">&#128226; KIRIM PENGUMUMAN</button>
+          <!-- BARU: pengumuman diulang tiap 25 detik di semua PC/HP sampai pengirim menekan ini -->
+          <button type="button" class="btn-small btn-talk hidden" id="fbStopAnnounce">&#128683; HENTIKAN PENGUMUMAN</button>
+          <!-- Tombol BICARA MANUAL dengan IKON GAMBAR: memuat icon-mic.png dari root situs (ganti file itu dengan logo RS
+               bila mau). Bila file tidak ada / gagal dimuat (mis. di Apps Script), ikon SVG inline di sebelahnya tampil
+               otomatis (onerror), jadi tombol tidak pernah tampil tanpa ikon. Teks diubah lewat .btn-talk-label (JS). -->
+          <button type="button" class="btn-small btn-talk hidden" id="fbTalk">
+            <img src="icon-mic.png" alt="" class="btn-talk-icon" onerror="this.style.display='none';if(this.nextElementSibling)this.nextElementSibling.style.display='';">
+            <svg class="btn-talk-icon btn-talk-svg" viewBox="0 0 24 24" aria-hidden="true" style="display:none" fill="currentColor"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M19 10a1 1 0 1 0-2 0 5 5 0 0 1-10 0 1 1 0 1 0-2 0 7 7 0 0 0 6 6.92V20H8a1 1 0 1 0 0 2h8a1 1 0 1 0 0-2h-3v-3.08A7 7 0 0 0 19 10z"/></svg>
+            <span class="btn-talk-label">BICARA MANUAL</span>
+          </button>
+          <span class="voice-ind hidden" id="fbListening">&#127911; Mendengarkan pengirim...</span>
+          <button type="button" class="btn-small btn-talk hidden" id="fbUnlockVoice">&#128266; AKTIFKAN SUARA PENGIRIM</button>
+        </div>
+        <div class="note announce-text hidden" id="fbAnnounceText"></div>
+        <div class="note" id="fbMineWrap" style="margin-top:12px"></div>
+        <div class="fb-actions">
+          <button type="button" class="btn-small" id="fbRetry">BUKA TAB ALARM</button>
+          <button type="button" class="btn-small ghost" id="fbMinimize">MINIMALKAN (suara tetap berbunyi)</button>
+        </div>
+      </div>
+      <div class="fb-panel-map" id="fbPanelMap">
+        <div class="peta-container" id="petaContainer">
+  <div class="peta-label-badge" id="petaLabelBadge">
+    <div class="pl-code" id="plCode"></div>
+    <div class="pl-gedung" id="plGedung"></div>
+    <div class="pl-inst" id="plInst"></div>
+  </div>
+  <div class="peta-img-wrap">
+    <!-- GAMBAR DENAH: ganti src dengan URL gambar (Drive "get direct link", hosting, atau base64) -->
+    <!-- BARU: src diisi lewat JS dengan parameter cache busting (PETA_IMG_VERSION) supaya denah yang diperbarui langsung tampil -->
+    <img class="peta-img" id="petaImg" src="" alt="Denah Rumah Sakit">
+
+    <svg class="peta-svg" id="petaSvg" viewBox="0 0 1024 685" preserveAspectRatio="xMidYMid meet">
+      <defs>
+        <mask id="petaSpotlight">
+          <rect x="0" y="0" width="1024" height="685" fill="#fff"></rect>
+          <circle id="petaSpotHole" cx="0" cy="0" r="95" fill="#000"></circle>
+        </mask>
+      </defs>
+
+      <!-- lapisan gelap dengan lubang spotlight di gedung tujuan -->
+      <rect id="petaDim" x="0" y="0" width="1024" height="685" mask="url(#petaSpotlight)"></rect>
+
+      <line id="petaLine" x1="512" y1="342" x2="512" y2="342" stroke-dasharray="600"></line>
+      <circle id="petaHighlight" cx="0" cy="0" r="60"></circle>
+
+      <g id="petaMarker">
+        <circle class="marker-pulse" cx="0" cy="0" r="14"></circle>
+        <circle class="marker-dot" cx="0" cy="0" r="14" stroke="#fff" stroke-width="3"></circle>
+      </g>
+    </svg>
+  </div>
+</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= BANNER COOKIE CONSENT ("Accept All Cookies") =================
+       Tampil hanya bila localStorage 'cb_cookie_consent' belum 'accepted'.
+       Klik "Accept All Cookies" = user gesture pertama -> membuka izin audio (Web Audio + TTS)
+       lebih awal, sebelum login / sebelum code dikirim. Logika ada di Script.html (initCookieBanner). -->
+  <div id="cookieBanner" class="cookie-banner hidden" role="dialog" aria-live="polite" aria-label="Persetujuan cookie">
+    <div class="cookie-text">
+      <b>Situs ini menggunakan cookie &amp; penyimpanan lokal</b> untuk menjaga sesi login dan mengaktifkan suara alarm otomatis di PC ini.
+      Klik <b>Accept All Cookies</b> agar alarm dapat berbunyi tanpa klik tambahan.
+    </div>
+    <div class="cookie-actions">
+      <button type="button" class="cookie-reject" id="cookieReject">Tolak</button>
+      <button type="button" class="cookie-accept" id="cookieAccept">Accept All Cookies</button>
+    </div>
+  </div>
+  <!-- Urutan penting: config (URL Apps Script + default) -> api (fetch) -> audio -> voice -> peta -> dashboard -->
+  <script src="js/config.js?v=202609180824"></script>
+  <script src="js/api.js?v=202609180824"></script>
+  <script src="js/audio.js?v=202609180824"></script>
+  <script src="js/voice.js?v=202609180824"></script>
+  <script src="js/peta.js?v=202609180824"></script>
+  <script src="js/dashboard.js?v=202609180824"></script>
+  <script>
+    // PWA: service worker minimal (network-only, tanpa cache) supaya bisa "Add to Home Screen" dan update selalu terbaru.
+    if ('serviceWorker' in navigator) { navigator.serviceWorker.register('sw.js').catch(function () {}); }
+  </script>
+</body>
+</html>
